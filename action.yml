@@ -1223,19 +1223,16 @@ inputs:
   # Enable or disable plugin
   plugin_pronouns:
     description: Display your pronouns
-    type: boolean
     default: no
 
   # Use for PronounDB
   plugin_pronouns_id:
     description: PronounDB's ID, if any.
-    type: string
     default: ""
 
   # Preferences for Pronouns
   plugin_pronouns_pref:
     description: Preferences for Pronouns
-    type: string
     default: ""
   
 
