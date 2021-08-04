@@ -1216,6 +1216,27 @@ inputs:
   plugin_nightscout_urgenthighalert:
     description: When the blood sugar is considered urgently high
     default: 250
+    
+  # ====================================================================================
+  # Pronouns
+
+  # Enable or disable plugin
+  plugin_pronouns:
+    description: Display your pronouns
+    type: boolean
+    default: no
+
+  # Use for PronounDB
+  plugin_pronouns_id:
+    description: PronounDB's ID, if any.
+    type: string
+    default: ""
+
+  # Preferences for Pronouns
+  plugin_pronouns_pref:
+    description: Preferences for Pronouns
+    type: string
+    default: ""
   
 
 # ====================================================================================
