@@ -3,14 +3,14 @@ export default async function({login, q, imports, graphql, queries, data, accoun
   //Plugin execution
   try {
     //Check if plugin is enabled and requirements are met
-    if ((!enabled)||(!q.repositories))
+    if ((!enabled) || (!q.repositories))
       return null
 
     //Load inputs
     let {featured} = imports.metadata.plugins.repositories.inputs({data, account, q})
 
     //Initialization
-    const repositories = {list:[]}
+    const repositories = {list: []}
 
     //Fetch repositories informations
     for (const repo of featured) {
@@ -33,6 +33,6 @@ export default async function({login, q, imports, graphql, queries, data, accoun
   }
   //Handle errors
   catch (error) {
-    throw {error:{message:"An error occured", instance:error}}
+    throw {error: {message: "An error occured", instance: error}}
   }
 }

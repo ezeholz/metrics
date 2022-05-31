@@ -6,16 +6,22 @@ import express from "express"
 import ratelimit from "express-rate-limit"
 import cache from "memory-cache"
 import util from "util"
+import mocks from "../../../tests/mocks/index.mjs"
 import metrics from "../metrics/index.mjs"
+import presets from "../metrics/presets.mjs"
 import setup from "../metrics/setup.mjs"
-import mocks from "../mocks/index.mjs"
 
 /**App */
-export default async function({mock, nosettings} = {}) {
+export default async function({sandbox = false} = {}) {
   //Load configuration settings
-  const {conf, Plugins, Templates} = await setup({nosettings})
+  const {conf, Plugins, Templates} = await setup({sandbox})
+  //Sandbox mode
+  if (sandbox) {
+    console.debug("metrics/app > sandbox mode is specified, enabling advanced features")
+    Object.assign(conf.settings, {sandbox: true, optimize: true, cached: 0, "plugins.default": true, extras: {default: true}})
+  }
   const {token, maxusers = 0, restricted = [], debug = false, cached = 30 * 60 * 1000, port = 3000, ratelimiter = null, plugins = null} = conf.settings
-  mock = mock || conf.settings.mocked
+  const mock = sandbox || conf.settings.mocked
 
   //Process mocking and default plugin state
   for (const plugin of Object.keys(Plugins).filter(x => !["base", "core"].includes(x))) {
@@ -42,10 +48,10 @@ export default async function({mock, nosettings} = {}) {
     conf.settings.token = "MOCKED_TOKEN"
   }
   if (debug)
-    console.debug(util.inspect(conf.settings, {depth:Infinity, maxStringLength:256}))
+    console.debug(util.inspect(conf.settings, {depth: Infinity, maxStringLength: 256}))
 
   //Load octokits
-  const api = {graphql:octokit.graphql.defaults({headers:{authorization:`token ${token}`}}), rest:new OctokitRest.Octokit({auth:token})}
+  const api = {graphql: octokit.graphql.defaults({headers: {authorization: `token ${token}`}}), rest: new OctokitRest.Octokit({auth: token})}
   //Apply mocking if needed
   if (mock)
     Object.assign(api, await mocks(api))
@@ -62,8 +68,8 @@ export default async function({mock, nosettings} = {}) {
       skip(req, _res) {
         return !!cache.get(req.params.login)
       },
-      message:"Too many requests: retry later",
-      headers:true,
+      message: "Too many requests: retry later",
+      headers: true,
       ...ratelimiter,
     }))
   }
@@ -78,26 +84,37 @@ export default async function({mock, nosettings} = {}) {
   })
 
   //Base routes
-  const limiter = ratelimit({max:debug ? Number.MAX_SAFE_INTEGER : 60, windowMs:60 * 1000, headers:false})
+  const limiter = ratelimit({max: debug ? Number.MAX_SAFE_INTEGER : 60, windowMs: 60 * 1000, headers: false})
   const metadata = Object.fromEntries(
     Object.entries(conf.metadata.plugins)
-      .map(([key, value]) => [key, Object.fromEntries(Object.entries(value).filter(([key]) => ["name", "icon", "category", "web", "supports"].includes(key)))])
-      .map(([key, value]) => [key, key === "core" ? {...value, web:Object.fromEntries(Object.entries(value.web).filter(([key]) => /^config[.]/.test(key)).map(([key, value]) => [key.replace(/^config[.]/, ""), value]))} : value]),
+      .map(([key, value]) => [key, Object.fromEntries(Object.entries(value).filter(([key]) => ["name", "icon", "category", "web", "supports", "scopes"].includes(key)))])
+      .map(([key, value]) => [key, key === "core" ? {...value, web: Object.fromEntries(Object.entries(value.web).filter(([key]) => /^config[.]/.test(key)).map(([key, value]) => [key.replace(/^config[.]/, ""), value]))} : value]),
   )
-  const enabled = Object.entries(metadata).filter(([_name, {category}]) => category !== "core").map(([name]) => ({name, enabled:plugins[name]?.enabled ?? false}))
-  const templates = Object.entries(Templates).map(([name]) => ({name, enabled:(conf.settings.templates.enabled.length ? conf.settings.templates.enabled.includes(name) : true) ?? false}))
-  const actions = {flush:new Map()}
-  let requests = {limit:0, used:0, remaining:0, reset:NaN}
+  const enabled = Object.entries(metadata).filter(([_name, {category}]) => category !== "core").map(([name]) => ({name, category: metadata[name]?.category ?? "community", enabled: plugins[name]?.enabled ?? false}))
+  const templates = Object.entries(Templates).map(([name]) => ({name, enabled: (conf.settings.templates.enabled.length ? conf.settings.templates.enabled.includes(name) : true) ?? false}))
+  const actions = {flush: new Map()}
+  const requests = {rest: {limit: 0, used: 0, remaining: 0, reset: NaN}, graphql: {limit: 0, used: 0, remaining: 0, reset: NaN}}
+  let _requests_refresh = false
   if (!conf.settings.notoken) {
-    requests = (await rest.rateLimit.get()).data.rate
-    setInterval(async () => {
+    const refresh = async () => {
       try {
-        requests = (await rest.rateLimit.get()).data.rate
+        const {limit} = await graphql("{ limit:rateLimit {limit remaining reset:resetAt used} }")
+        Object.assign(requests, {
+          rest: (await rest.rateLimit.get()).data.rate,
+          graphql: {...limit, reset: new Date(limit.reset).getTime()},
+        })
       }
       catch {
         console.debug("metrics/app > failed to update remaining requests")
       }
-    }, 5 * 60 * 1000)
+    }
+    await refresh()
+    setInterval(refresh, 15 * 60 * 1000)
+    setInterval(() => {
+      if (_requests_refresh)
+        refresh()
+      _requests_refresh = false
+    }, 15 * 1000)
   }
   //Web
   app.get("/", limiter, (req, res) => res.sendFile(`${conf.paths.statics}/index.html`))
@@ -113,6 +130,8 @@ export default async function({mock, nosettings} = {}) {
   app.get("/.templates/:template", limiter, (req, res) => req.params.template in conf.templates ? res.status(200).json(conf.templates[req.params.template]) : res.sendStatus(404))
   for (const template in conf.templates)
     app.use(`/.templates/${template}/partials`, express.static(`${conf.paths.templates}/${template}/partials`))
+  //Placeholders
+  app.use("/.placeholders", express.static(`${conf.paths.statics}/placeholders`))
   //Styles
   app.get("/.css/style.css", limiter, (req, res) => res.sendFile(`${conf.paths.statics}/style.css`))
   app.get("/.css/style.vars.css", limiter, (req, res) => res.sendFile(`${conf.paths.statics}/style.vars.css`))
@@ -121,7 +140,7 @@ export default async function({mock, nosettings} = {}) {
   app.get("/.js/app.js", limiter, (req, res) => res.sendFile(`${conf.paths.statics}/app.js`))
   app.get("/.js/app.placeholder.js", limiter, (req, res) => res.sendFile(`${conf.paths.statics}/app.placeholder.js`))
   app.get("/.js/ejs.min.js", limiter, (req, res) => res.sendFile(`${conf.paths.node_modules}/ejs/ejs.min.js`))
-  app.get("/.js/faker.min.js", limiter, (req, res) => res.sendFile(`${conf.paths.node_modules}/faker/dist/faker.min.js`))
+  app.get("/.js/faker.min.js", limiter, (req, res) => res.sendFile(`${conf.paths.node_modules}/@faker-js/faker/dist/faker.min.js`))
   app.get("/.js/axios.min.js", limiter, (req, res) => res.sendFile(`${conf.paths.node_modules}/axios/dist/axios.min.js`))
   app.get("/.js/axios.min.map", limiter, (req, res) => res.sendFile(`${conf.paths.node_modules}/axios/dist/axios.min.map`))
   app.get("/.js/vue.min.js", limiter, (req, res) => res.sendFile(`${conf.paths.node_modules}/vue/dist/vue.min.js`))
@@ -174,34 +193,7 @@ export default async function({mock, nosettings} = {}) {
       }
       //Compute metrics
       console.debug(`metrics/app/${login}/insights > compute insights`)
-      const json = await metrics(
-        {
-          login,
-          q:{
-            template:"classic",
-            achievements:true,
-            "achievements.threshold":"X",
-            isocalendar:true,
-            "isocalendar.duration":"full-year",
-            languages:true,
-            "languages.limit":0,
-            activity:true,
-            "activity.limit":100,
-            "activity.days":0,
-            notable:true,
-            followup:true,
-            "followup.sections":"repositories, user",
-            habits:true,
-            "habits.from":100,
-            "habits.days":7,
-            "habits.facts":false,
-            "habits.charts":true,
-            introduction:true
-          },
-        },
-        {graphql, rest, plugins:{achievements:{enabled:true}, isocalendar:{enabled:true}, languages:{enabled:true}, activity:{enabled:true, markdown:"extended"}, notable:{enabled:true}, followup:{enabled:true}, habits:{enabled:true}, introduction:{enabled:true}}, conf, convert:"json"},
-        {Plugins, Templates},
-      )
+      const json = await metrics.insights({login}, {graphql, rest, conf}, {Plugins, Templates})
       //Cache
       if ((!debug) && (cached)) {
         const maxage = Math.round(Number(req.query.cache))
@@ -225,6 +217,9 @@ export default async function({mock, nosettings} = {}) {
       //General error
       console.error(error)
       return res.status(500).send("Internal Server Error: failed to process metrics correctly")
+    }
+    finally {
+      _requests_refresh = true
     }
   })
 
@@ -250,9 +245,9 @@ export default async function({mock, nosettings} = {}) {
       console.debug(`metrics/app/${login} > awaiting pending request`)
       await pending.get(login)
     }
-    else
+    else {
       pending.set(login, new Promise(_solve => solve = _solve))
-
+    }
 
     //Read cached data if possible
     if ((!debug) && (cached) && (cache.get(login))) {
@@ -278,15 +273,19 @@ export default async function({mock, nosettings} = {}) {
     try {
       //Render
       const q = req.query
-      console.debug(`metrics/app/${login} > ${util.inspect(q, {depth:Infinity, maxStringLength:256})}`)
+      console.debug(`metrics/app/${login} > ${util.inspect(q, {depth: Infinity, maxStringLength: 256})}`)
+      if ((q["config.presets"]) && (conf.settings.extras?.presets ?? conf.settings.extras?.default ?? false)) {
+        console.debug(`metrics/app/${login} > presets have been specified, loading them`)
+        Object.assign(q, await presets(q["config.presets"]))
+      }
       const {rendered, mime} = await metrics({login, q}, {
         graphql,
         rest,
         plugins,
         conf,
-        die:q["plugins.errors.fatal"] ?? false,
-        verify:q.verify ?? false,
-        convert:["svg", "jpeg", "png", "json", "markdown", "markdown-pdf"].includes(q["config.output"]) ? q["config.output"] : null,
+        die: q["plugins.errors.fatal"] ?? false,
+        verify: q.verify ?? false,
+        convert: ["svg", "jpeg", "png", "json", "markdown", "markdown-pdf", "insights"].includes(q["config.output"]) ? q["config.output"] : null,
       }, {Plugins, Templates})
       //Cache
       if ((!debug) && (cached)) {
@@ -326,19 +325,20 @@ export default async function({mock, nosettings} = {}) {
     }
     finally {
       //After rendering
-
       solve?.()
+      _requests_refresh = true
     }
   })
 
   //Listen
-  app.listen(port, () => console.log([
+  app.listen(port, () =>
+    console.log([
       `Listening on port      │ ${port}`,
       `Debug mode             │ ${debug}`,
       `Mocked data            │ ${conf.settings.mocked ?? false}`,
       `Restricted to users    │ ${restricted.size ? [...restricted].join(", ") : "(unrestricted)"}`,
       `Cached time            │ ${cached} seconds`,
-      `Rate limiter           │ ${ratelimiter ? util.inspect(ratelimiter, {depth:Infinity, maxStringLength:256}) : "(enabled)"}`,
+      `Rate limiter           │ ${ratelimiter ? util.inspect(ratelimiter, {depth: Infinity, maxStringLength: 256}) : "(enabled)"}`,
       `Max simultaneous users │ ${maxusers ? `${maxusers} users` : "(unrestricted)"}`,
       `Plugins enabled        │ ${enabled.map(({name}) => name).join(", ")}`,
       `SVG optimization       │ ${conf.settings.optimize ?? false}`,

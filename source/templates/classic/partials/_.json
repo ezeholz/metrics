@@ -19,7 +19,9 @@
   "rss",
   "tweets",
   "isocalendar",
+  "calendar",
   "stars",
+  "starlists",
   "stargazers",
   "people",
   "activity",
@@ -31,5 +33,9 @@
   "stackoverflow",
   "stock",
   "achievements",
-  "screenshot"
+  "screenshot",
+  "code",
+  "sponsors",
+  "poopmap",
+  "fortune"
 ]

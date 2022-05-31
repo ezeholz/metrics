@@ -1,6 +1,6 @@
 ;(async function() {
   //Init
-  const { data: metadata } = await axios.get("/.plugins.metadata")
+  const {data: metadata} = await axios.get("/.plugins.metadata")
   delete metadata.core.web.output
   delete metadata.core.web.twemojis
   //App
@@ -11,47 +11,49 @@
       //Interpolate config from browser
       try {
         this.config.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-        this.palette = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        this.palette = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
       }
       catch (error) {}
       //Init
       await Promise.all([
         //GitHub limit tracker
         (async () => {
-          const { data: requests } = await axios.get("/.requests")
+          const {data: requests} = await axios.get("/.requests")
           this.requests = requests
         })(),
         //Templates
         (async () => {
-          const { data: templates } = await axios.get("/.templates")
+          const {data: templates} = await axios.get("/.templates")
           templates.sort((a, b) => (a.name.startsWith("@") ^ b.name.startsWith("@")) ? (a.name.startsWith("@") ? 1 : -1) : a.name.localeCompare(b.name))
           this.templates.list = templates
           this.templates.selected = templates[0]?.name || "classic"
         })(),
         //Plugins
         (async () => {
-          const { data: plugins } = await axios.get("/.plugins")
-          this.plugins.list = plugins
+          const {data: plugins} = await axios.get("/.plugins")
+          this.plugins.list = plugins.filter(({name}) => metadata[name]?.supports.includes("user") || metadata[name]?.supports.includes("organization"))
+          const categories = [...new Set(this.plugins.list.map(({category}) => category))]
+          this.plugins.categories = Object.fromEntries(categories.map(category => [category, this.plugins.list.filter(value => category === value.category)]))
         })(),
         //Base
         (async () => {
-          const { data: base } = await axios.get("/.plugins.base")
+          const {data: base} = await axios.get("/.plugins.base")
           this.plugins.base = base
           this.plugins.enabled.base = Object.fromEntries(base.map(key => [key, true]))
         })(),
         //Version
         (async () => {
-          const { data: version } = await axios.get("/.version")
+          const {data: version} = await axios.get("/.version")
           this.version = `v${version}`
         })(),
         //Hosted
         (async () => {
-          const { data: hosted } = await axios.get("/.hosted")
+          const {data: hosted} = await axios.get("/.hosted")
           this.hosted = hosted
         })(),
       ])
       //Generate placeholder
-      this.mock({ timeout: 200 })
+      this.mock({timeout: 200})
       setInterval(() => {
         const marker = document.querySelector("#metrics-end")
         if (marker) {
@@ -60,14 +62,16 @@
         }
       }, 100)
     },
-    components: { Prism: PrismComponent },
+    components: {Prism: PrismComponent},
     //Watchers
     watch: {
       tab: {
         immediate: true,
         handler(current) {
-          if (current === 'action') this.clipboard = new ClipboardJS('.copy-action')
-          else this.clipboard?.destroy()
+          if (current === "action")
+            this.clipboard = new ClipboardJS(".copy-action")
+          else
+            this.clipboard?.destroy()
         },
       },
       palette: {
@@ -86,14 +90,29 @@
       tab: "overview",
       palette: "light",
       clipboard: null,
-      requests: { limit: 0, used: 0, remaining: 0, reset: 0 },
+      requests: {rest: {limit: 0, used: 0, remaining: 0, reset: NaN}, graphql: {limit: 0, used: 0, remaining: 0, reset: NaN}},
       cached: new Map(),
-      config: Object.fromEntries(Object.entries(metadata.core.web).map(([key, { defaulted }]) => [key, defaulted])),
-      metadata: Object.fromEntries(Object.entries(metadata).map(([key, { web }]) => [key, web])),
+      config: Object.fromEntries(Object.entries(metadata.core.web).map(([key, {defaulted}]) => [key, defaulted])),
+      metadata: Object.fromEntries(Object.entries(metadata).map(([key, {web}]) => [key, web])),
       hosted: null,
+      docs: {
+        overview: {
+          link: "https://github.com/lowlighter/metrics#-documentation",
+          name: "Complete documentation",
+        },
+        markdown: {
+          link: "https://github.com/lowlighter/metrics/blob/master/.github/readme/partials/documentation/setup/shared.md",
+          name: "Setup using the shared instance",
+        },
+        action: {
+          link: "https://github.com/lowlighter/metrics/blob/master/.github/readme/partials/documentation/setup/action.md",
+          name: "Setup using GitHub Action on a profile repository",
+        },
+      },
       plugins: {
         base: {},
         list: [],
+        categories: [],
         enabled: {},
         descriptions: {
           base: "🗃️ Base content",
@@ -102,15 +121,15 @@
           "base.community": "Community stats",
           "base.repositories": "Repositories metrics",
           "base.metadata": "Metadata",
-          ...Object.fromEntries(Object.entries(metadata).map(([key, { name }]) => [key, name])),
+          ...Object.fromEntries(Object.entries(metadata).map(([key, {name}]) => [key, name])),
         },
         options: {
-          descriptions: { ...(Object.assign({}, ...Object.entries(metadata).flatMap(([key, { web }]) => web))) },
+          descriptions: {...(Object.assign({}, ...Object.entries(metadata).flatMap(([key, {web}]) => web)))},
           ...(Object.fromEntries(
             Object.entries(
-              Object.assign({}, ...Object.entries(metadata).flatMap(([key, { web }]) => web)),
+              Object.assign({}, ...Object.entries(metadata).flatMap(([key, {web}]) => web)),
             )
-              .map(([key, { defaulted }]) => [key, defaulted]),
+              .map(([key, {defaulted}]) => [key, defaulted]),
           )),
         },
       },
@@ -138,7 +157,7 @@
     computed: {
       //Unusable plugins
       unusable() {
-        return this.plugins.list.filter(({ name }) => this.plugins.enabled[name]).filter(({ enabled }) => !enabled).map(({ name }) => name)
+        return this.plugins.list.filter(({name}) => this.plugins.enabled[name]).filter(({enabled}) => !enabled).map(({name}) => name)
       },
       //User's avatar
       avatar() {
@@ -174,6 +193,13 @@
       embed() {
         return `![Metrics](${this.url})`
       },
+      //Token scopes
+      scopes() {
+        return new Set([
+          ...Object.entries(this.plugins.enabled).filter(([key, value]) => (key !== "base") && (value)).flatMap(([key]) => metadata[key].scopes),
+          ...(Object.entries(this.plugins.enabled.base).filter(([key, value]) => value).length ? metadata.base.scopes : []),
+        ])
+      },
       //GitHub action auto-generated code
       action() {
         return [
@@ -191,22 +217,31 @@
           `    steps:`,
           `      - uses: lowlighter/metrics@latest`,
           `        with:`,
-          `          # Your GitHub token`,
-          `          token: ${"$"}{{ secrets.METRICS_TOKEN }}`,
+          ...(this.scopes.size
+            ? [
+              `          # Your GitHub token`,
+              `          # The following scopes are required:`,
+              ...[...this.scopes].map(scope => `          #  - ${scope}${scope === "public_access" ? " (default scope)" : ""}`),
+              `          # The following additional scopes may be required:`,
+              `          #  - read:org      (for organization related metrics)`,
+              `          #  - read:user     (for user related data)`,
+              `          #  - read:packages (for some packages related data)`,
+              `          #  - repo          (optional, if you want to include private repositories)`,
+            ]
+            : [
+              `          # Current configuration doesn't require a GitHub token`,
+            ]),
+          `          token: ${this.scopes.size ? `${"$"}{{ secrets.METRICS_TOKEN }}` : "NOT_NEEDED"}`,
           ``,
           `          # Options`,
           `          user: ${this.user}`,
           `          template: ${this.templates.selected}`,
           `          base: ${Object.entries(this.plugins.enabled.base).filter(([key, value]) => value).map(([key]) => key).join(", ") || '""'}`,
           ...[
-            ...Object.entries(this.plugins.options).filter(([key, value]) => (key in metadata.base.web) && (value !== metadata.base.web[key]?.defaulted)).map(([key, value]) =>
-              `          ${key.replace(/[.]/g, "_")}: ${typeof value === "boolean" ? { true: "yes", false: "no" }[value] : value}`
-            ),
+            ...Object.entries(this.plugins.options).filter(([key, value]) => (key in metadata.base.web) && (value !== metadata.base.web[key]?.defaulted)).map(([key, value]) => `          ${key.replace(/[.]/g, "_")}: ${typeof value === "boolean" ? {true: "yes", false: "no"}[value] : value}`),
             ...Object.entries(this.plugins.enabled).filter(([key, value]) => (key !== "base") && (value)).map(([key]) => `          plugin_${key}: yes`),
-            ...Object.entries(this.plugins.options).filter(([key, value]) => value).filter(([key, value]) => this.plugins.enabled[key.split(".")[0]]).map(([key, value]) =>
-              `          plugin_${key.replace(/[.]/g, "_")}: ${typeof value === "boolean" ? { true: "yes", false: "no" }[value] : value}`
-            ),
-            ...Object.entries(this.config).filter(([key, value]) => (value) && (value !== metadata.core.web[key]?.defaulted)).map(([key, value]) => `          config_${key.replace(/[.]/g, "_")}: ${typeof value === "boolean" ? { true: "yes", false: "no" }[value] : value}`),
+            ...Object.entries(this.plugins.options).filter(([key, value]) => (value) && (!(key in metadata.base.web))).filter(([key, value]) => this.plugins.enabled[key.split(".")[0]]).map(([key, value]) => `          plugin_${key.replace(/[.]/g, "_")}: ${typeof value === "boolean" ? {true: "yes", false: "no"}[value] : value}`),
+            ...Object.entries(this.config).filter(([key, value]) => (value) && (value !== metadata.core.web[key]?.defaulted)).map(([key, value]) => `          config_${key.replace(/[.]/g, "_")}: ${typeof value === "boolean" ? {true: "yes", false: "no"}[value] : value}`),
           ].sort(),
         ].join("\n")
       },
@@ -216,7 +251,7 @@
         const enabled = Object.entries(this.plugins.enabled).filter(([key, value]) => (value) && (key !== "base")).map(([key, value]) => key)
         const filter = new RegExp(`^(?:${enabled.join("|")})[.]`)
         //Search related options
-        const entries = Object.entries(this.plugins.options.descriptions).filter(([key, value]) => filter.test(key))
+        const entries = Object.entries(this.plugins.options.descriptions).filter(([key, value]) => (filter.test(key)) && (!(key in metadata.base.web)))
         entries.push(...enabled.map(key => [key, this.plugins.descriptions[key]]))
         entries.sort((a, b) => a[0].localeCompare(b[0]))
         //Return object
@@ -227,11 +262,26 @@
       preview() {
         return /-preview$/.test(this.version)
       },
+      //Rate limit reset
+      rlreset() {
+        const reset = new Date(Math.max(this.requests.graphql.reset, this.requests.rest.reset))
+        return `${reset.getHours()}:${reset.getMinutes()}`
+      },
     },
     //Methods
     methods: {
+      //Refresh computed properties
+      async refresh() {
+        const keys = {action: ["scopes", "action"], markdown: ["url", "embed"]}[this.tab]
+        if (keys) {
+          for (const key of keys)
+            this._computedWatchers[key]?.run()
+          this.$forceUpdate()
+        }
+      },
       //Load and render placeholder image
-      async mock({ timeout = 600 } = {}) {
+      async mock({timeout = 600} = {}) {
+        this.refresh()
         clearTimeout(this.templates.placeholder.timeout)
         this.templates.placeholder.timeout = setTimeout(async () => {
           this.templates.placeholder.image = await placeholder(this)
@@ -261,10 +311,15 @@
           this.generated.error = null
         }
         catch (error) {
-          this.generated.error = { code: error.response.status, message: error.response.data }
+          this.generated.error = {code: error.response.status, message: error.response.data}
         }
         finally {
           this.generated.pending = false
+          try {
+            const {data: requests} = await axios.get("/.requests")
+            this.requests = requests
+          }
+          catch {}
         }
       },
     },

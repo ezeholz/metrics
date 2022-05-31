@@ -1,15 +1,30 @@
 name: "✨ Stargazers over last weeks"
-cost: 1 GraphQL request per 100 stargazers
 category: github
-index: 14
+description: This plugin displays your stargazers evolution across all of your repositories over the last two weeks.
+examples:
+  +classic charts: https://github.com/lowlighter/metrics/blob/examples/metrics.plugin.stargazers.svg
+  chartist charts: https://github.com/lowlighter/metrics/blob/examples/metrics.plugin.stargazers.chartist.svg
+index: 10
 supports:
   - user
   - organization
   - repository
+scopes:
+  - public_access
 inputs:
 
-  # Enable or disable plugin
   plugin_stargazers:
-    description: Display stargazers metrics
+    description: Enable stargazers plugin
     type: boolean
     default: no
+
+  plugin_stargazers_charts_type:
+    description: |
+      Charts display type
+      - `classic`: `<div>` based charts, simple and lightweight
+      - `chartist`: `<svg>` based charts, smooth
+    type: string
+    default: classic
+    values:
+      - classic
+      - chartist

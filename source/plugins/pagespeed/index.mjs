@@ -12,7 +12,7 @@ export default async function({login, imports, data, q, account}, {enabled = fal
     if (!/^https?:[/][/]/.test(url))
       url = `https://${url}`
     const {protocol, host} = imports.url.parse(url)
-    const result = {url:`${protocol}//${host}`, detailed, scores:[], metrics:{}}
+    const result = {url: `${protocol}//${host}`, detailed, scores: [], metrics: {}}
     //Load scores from API
     console.debug(`metrics/compute/${login}/plugins > pagespeed > querying api for ${result.url}`)
     const scores = new Map()
@@ -47,10 +47,12 @@ export default async function({login, imports, data, q, account}, {enabled = fal
     let message = "An error occured"
     if (error.isAxiosError) {
       const status = error.response?.status
-      const description = error.response?.data?.error?.message?.match(/Lighthouse returned error: (?<description>[A-Z_]+)/)?.groups?.description ?? null
+      let description = error.response?.data?.error?.message?.match(/Lighthouse returned error: (?<description>[A-Z_]+)/)?.groups?.description ?? null
+      if ((status === 429) && (!description))
+        description = 'consider using "plugin_pagespeed_token"'
       message = `API returned ${status}${description ? ` (${description})` : ""}`
       error = error.response?.data ?? null
     }
-    throw {error:{message, instance:error}}
+    throw {error: {message, instance: error}}
   }
 }
